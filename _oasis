@@ -12,7 +12,7 @@ Library mirage_block_xen
   Path:               lib
   Findlibname:        mirage-block-xen
   Modules:            Blkproto, Device_number
-  BuildDepends:       cstruct, cstruct.syntax
+  BuildDepends:       cstruct, cstruct.syntax, mirage-profile
 
 Library mirage_block_xen_front
   CompiledObject:     best

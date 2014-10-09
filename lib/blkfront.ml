@@ -77,6 +77,7 @@ let alloc ~order (num,domid) =
 let poll t =
   let rec loop from =
     lwt next = Activations.after t.evtchn from in
+    MProf.Trace.label "blkfront.poll";
     let () = Lwt_ring.Front.poll t.client (Res.read_response) in
     loop next in
   loop Activations.program_start
@@ -97,6 +98,7 @@ let plug (id:id) =
 
   let backend_read fn default k =
     let backend = sprintf "%s/%s" backend in
+    MProf.Trace.label "blkfront.plug.backend_read";
     try_lwt
       lwt s = Xs.(immediate xs (fun h -> read h (backend k))) in
       return (fn s)
@@ -165,6 +167,7 @@ let unplug id =
 
 (** Return a list of valid VBDs *)
 let enumerate () =
+  MProf.Trace.label "blkfront.enumerate";
   lwt xs = Xs.make () in
   try_lwt
     Xs.(immediate xs (fun h -> directory h "device/vbd"))

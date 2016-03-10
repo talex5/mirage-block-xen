@@ -440,7 +440,20 @@ type error =
   [ `Disconnected
   | `Is_read_only
   | `Unimplemented
+  | `No_such_device of id * id list
   | `Unknown of string ]
+
+let pp_comma f () = Format.pp_print_string f ", "
+
+let pp_error f = function
+  | `Disconnected   -> Format.fprintf f "Blkfront: disconnected"
+  | `Is_read_only   -> Format.fprintf f "Blkfront: read-only"
+  | `Unimplemented  -> Format.fprintf f "Blkfront: unimplemented"
+  | `Unknown msg    -> Format.fprintf f "Blkfront: %s" msg
+  | `No_such_device (id, all) ->
+      Format.fprintf f
+      "Blkfront.connect: device %S not found (available = [ %a ])"
+        id (Format.pp_print_list ~pp_sep:pp_comma Format.pp_print_string) all
 
 (* [take xs n] returns [(taken, remaining)] where [taken] is as many
    elements of [xs] as possible, up to [n], and [remaining] is any
@@ -550,10 +563,7 @@ let connect_already_locked id =
       Lwt.wakeup u dev;
       return (`Ok dev)
     | None ->
-      Log.err (fun f -> f "Blkfront.connect %s: could not find device" id);
-      return (`Error (`Unknown
-                        (Printf.sprintf "device %s not found (available = [ %s ])"
-                           id (String.concat ", " all))))
+      return (`Error (`No_such_device (id, all)))
   end
 
 let connect_m = Lwt_mutex.create ()

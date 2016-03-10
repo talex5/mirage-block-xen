@@ -100,17 +100,6 @@ module Request = struct
 
 end
 
-module BlockError = struct
-  open Lwt
-  let (>>=) x f = x >>= function
-  | `Ok x -> f x
-  | `Error (`Unknown x) -> fail (Failure x)
-  | `Error `Unimplemented -> fail (Failure "unimplemented in block device")
-  | `Error `Is_read_only -> fail (Failure "block device is read-only")
-  | `Error `Disconnected -> fail (Failure "block device is disconnected")
-  | `Error _ -> fail (Failure "unknown block device failure")
-end
-
 let is_writable req = match req.Req.op with
 | Some Req.Read -> true (* we need to write into the page *)
 | Some Req.Write -> false (* we read from the guest and write to the backend *)
@@ -122,12 +111,19 @@ let is_writable req = match req.Req.op with
   failwith "unhandled request type"
 
 module Make(A: ACTIVATIONS)(X: Xs_client_lwt.S)(B: V1_LWT.BLOCK) = struct
-let service_thread t stats =
+  module BlockError = struct
+    open Lwt
+    let (>>=) x f = x >>= function
+    | `Ok x -> f x
+    | `Error e -> fail (Failure (Format.asprintf "Block error: %a" B.pp_error e))
+  end
 
-  let grants_of_segments = List.map (fun seg -> {
-    Gnttab.domid = t.domid;
-    ref = Int32.to_int seg.Req.gref;
-  }) in
+  let service_thread t stats =
+
+    let grants_of_segments = List.map (fun seg -> {
+      Gnttab.domid = t.domid;
+      ref = Int32.to_int seg.Req.gref;
+    }) in
 
   let rec loop_forever after =
     (* For all the requests on the ring, build up a list of

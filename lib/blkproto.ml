@@ -15,6 +15,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
 
+module Gntref = OS.Xen.Gntref
+
 let ( >>= ) x f = match x with
   | Error _ as y -> y
   | Ok x -> f x
@@ -23,7 +25,6 @@ let list l k =
   then Error (`Msg (Printf.sprintf "missing %s key" k))
   else Ok (List.assoc k l)
 let int x = try Ok (int_of_string x) with _ -> Error (`Msg ("not an int: " ^ x))
-let int32 x = try Ok (Int32.of_string x) with _ -> Error (`Msg ("not an int32: " ^ x))
 
 (* Control messages via xenstore *)
 
@@ -156,14 +157,14 @@ end
 
 module RingInfo = struct
   type t = {
-    ref: int32;
+    ref: Gntref.t;
     event_channel: int;
     protocol: Protocol.t;
   }
 
   let to_string t =
-    Printf.sprintf "{ ref = %ld; event_channel = %d; protocol = %s }"
-    t.ref t.event_channel (Protocol.to_string t.protocol)
+    Fmt.strf "{ ref = %a; event_channel = %d; protocol = %s }"
+    Gntref.pp t.ref t.event_channel (Protocol.to_string t.protocol)
 
   let _ring_ref = "ring-ref"
   let _event_channel = "event-channel"
@@ -176,7 +177,7 @@ module RingInfo = struct
   ]
 
   let of_assoc_list l =
-    list l _ring_ref >>= fun x -> int32 x
+    list l _ring_ref >>= fun x -> Gntref.of_string x
     >>= fun ref ->
     list l _event_channel >>= fun x -> int x
     >>= fun event_channel ->
@@ -216,14 +217,14 @@ module Req = struct
   let segments_per_request = 11
 
   type seg = {
-    gref: int32;
+    gref: Gntref.t;
     first_sector: int;
     last_sector: int;
   }
 
   type segs =
   | Direct of seg array
-  | Indirect of int32 array
+  | Indirect of Gntref.t array
 
   (* Defined in include/xen/io/blkif.h : blkif_request_t *)
   type t = {
@@ -249,7 +250,7 @@ module Req = struct
   let get_segments payload nr_segs =
     Array.init nr_segs (fun i ->
       let seg = Cstruct.shift payload (i * sizeof_segment) in {
-        gref = get_segment_gref seg;
+        gref = Gntref.of_int32 (get_segment_gref seg);
         first_sector = get_segment_first_sector seg;
         last_sector = get_segment_last_sector seg;
       })
@@ -294,10 +295,13 @@ module Req = struct
     let write_segments segs buffer =
       Array.iteri (fun i seg ->
         let buf = Cstruct.shift buffer (i * sizeof_segment) in
-        set_segment_gref buf seg.gref;
+        set_segment_gref buf (Gntref.to_int32 seg.gref);
         set_segment_first_sector buf seg.first_sector;
         set_segment_last_sector buf seg.last_sector
       ) segs
+
+    let set_gref cs offset g =
+      Cstruct.LE.set_uint32 cs offset (Gntref.to_int32 g)
 
     (* Write a request to a slot in the shared ring. *)
     let write_request req (slot: Cstruct.t) = match req.segs with
@@ -318,8 +322,11 @@ module Req = struct
         I.set_hdr_id slot req.id;
         I.set_hdr_sector slot req.sector;
         let payload = Cstruct.shift slot I.sizeof_hdr in
-        Array.iteri (fun i gref -> Cstruct.LE.set_uint32 payload (i * 4) gref) refs;
+        Array.iteri (fun i gref -> set_gref payload (i * 4) gref) refs;
         req.id
+
+    let get_gref cs offset =
+      Cstruct.LE.get_uint32 cs offset |> Gntref.of_int32
 
     let read_request slot =
       let op = int_to_op (D.get_hdr_op slot) in
@@ -327,7 +334,7 @@ module Req = struct
         let nr_segs = I.get_hdr_nr_segs slot in
         let nr_grefs = (nr_segs + 511) / 512 in
         let payload = Cstruct.shift slot I.sizeof_hdr in
-        let grefs = Array.init nr_grefs (fun i -> Cstruct.LE.get_uint32 payload (i * 4)) in {
+        let grefs = Array.init nr_grefs (fun i -> get_gref payload (i * 4)) in {
           op = int_to_op (I.get_hdr_indirect_op slot); (* the "real" request type *)
           handle = I.get_hdr_handle slot; id = I.get_hdr_id slot;
           sector = I.get_hdr_sector slot; nr_segs;

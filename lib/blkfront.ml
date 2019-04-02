@@ -239,14 +239,13 @@ let params_to_frontend_ids ids =
 (** Create a Direct request if we have 11 or fewer requests, else an Indirect request. *)
 let with_segs t ~start_offset ~end_offset (rs:OS.Xen.Gntref.t array) fn =
   let len = Array.length rs in
-  let segs = Array.mapi (fun i rf ->
+  let segs = Array.mapi (fun i gref ->
       let first_sector = match i with
         | 0 -> start_offset
         | _ -> 0 in
       let last_sector = match i with
         | n when n == len-1 -> end_offset
         | _ -> 7 in
-      let gref = OS.Xen.Gntref.to_int32 rf in
       { Req.gref; first_sector; last_sector }
     ) rs in
   if len <= 11 then (
@@ -259,7 +258,7 @@ let with_segs t ~start_offset ~end_offset (rs:OS.Xen.Gntref.t array) fn =
     Req.Proto_64.write_segments segs (Io_page.to_cstruct indirect_page);
     OS.Xen.Export.with_ref (fun indirect_ref ->
       OS.Xen.Export.with_grant ~domid:t.t.backend_id ~writable:false indirect_ref indirect_page (fun () ->
-        fn (Req.Indirect [| OS.Xen.Gntref.to_int32 indirect_ref |])
+        fn (Req.Indirect [| indirect_ref |])
       )
     )
   )

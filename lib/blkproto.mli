@@ -57,12 +57,12 @@ end
 
 module Req : sig
   type seg = {
-    gref : int32;
+    gref : OS.Xen.Gntref.t;
     first_sector : int;
     last_sector : int;
   }
 
-  type segs = | Direct of seg array | Indirect of int32 array
+  type segs = | Direct of seg array | Indirect of OS.Xen.Gntref.t array
 
   type op = | Read | Write | Write_barrier | Flush | Op_reserved_1 | Trim | Indirect_op
 
@@ -111,7 +111,7 @@ end
 
 module RingInfo : sig
   type t = {
-    ref : int32;
+    ref : OS.Xen.Gntref.t;
     event_channel : int;
     protocol : Protocol.t;
   }
